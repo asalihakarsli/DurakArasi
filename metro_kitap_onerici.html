@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DurakArası</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    html {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      scroll-behavior: smooth;
+    }
+
+    /* Harita İstasyon Etkileşimleri */
+    .station-group {
+      cursor: pointer;
+    }
+    .station-group:hover .station-dot {
+      stroke-width: 4px;
+      filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.45));
+    }
+    .station-group:hover .station-label {
+      fill: #0f172a;
+      font-weight: 700;
+    }
+
+    .station-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 10.5px;
+      font-weight: 500;
+      fill: #334155;
+      user-select: none;
+      pointer-events: none;
+      paint-order: stroke fill;
+      stroke: #ffffff;
+      stroke-width: 3.5px;
+      stroke-linejoin: round;
+      transition: opacity 0.2s ease, fill 0.15s ease;
+    }
+    .station-label-hub {
+      font-size: 11.5px;
+      font-weight: 700;
+      fill: #0f172a;
+    }
+    .station-label-lib {
+      font-weight: 600;
+      fill: #1e293b;
+    }
+    .station-dimmed {
+      opacity: 0.35;
+    }
+
+    /* Aktif Rota Çizgi Animasyonu */
+    @keyframes routeDash {
+      to {
+        stroke-dashoffset: -32;
+      }
+    }
+    .active-route-dash {
+      stroke-dasharray: 10 6;
+      animation: routeDash 1.1s linear infinite;
+    }
+
+    /* Biniş / İniş Halka Nabız Efekti */
+    @keyframes softPulse {
+      0% {
+        transform: scale(0.9);
+        opacity: 0.85;
+      }
+      75% {
+        transform: scale(1.85);
+        opacity: 0;
+      }
+      100% {
+        transform: scale(1.85);
+        opacity: 0;
+      }
+    }
+    .marker-pulse {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: softPulse 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+
+    .progress-bar-fill {
+      transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  </style>
+</head>
+<body class="bg-[#F8FAFC] text-slate-900 min-h-screen antialiased selection:bg-blue-600 selection:text-white">
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-6">
+
+    <!-- Sade Başlık -->
+    <header class="space-y-1.5">
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+        Metro Kitap Önerici
+      </h1>
+      <p class="text-sm sm:text-base text-slate-600">
+        Biniş ve iniş durağınızı seçin; yolculuk sürenize uygun kitapları ve kitabı alacağınız en yakın durağı görün.
+      </p>
+    </header>
+
+    <!-- ADIM 1: Kompakt Rota Seçim Çubuğu -->
+    <section aria-label="Rota Seçimi" class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs p-4 sm:p-5">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3.5 items-end">
+        <!-- 1. Biniş Durağı -->
+        <div class="lg:col-span-4">
+          <label for="originSelect" class="block text-xs font-semibold text-slate-600 mb-1.5">
+            Biniş Durağı
+          </label>
+          <select id="originSelect"
+            class="w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] hover:bg-white focus:bg-white text-slate-900 text-sm font-medium px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 transition">
+          </select>
+        </div>
+
+        <!-- 2. İniş Durağı -->
+        <div class="lg:col-span-4">
+          <label for="destSelect" class="block text-xs font-semibold text-slate-600 mb-1.5">
+            İniş Durağı
+          </label>
+          <select id="destSelect"
+            class="w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] hover:bg-white focus:bg-white text-slate-900 text-sm font-medium px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 transition">
+          </select>
+        </div>
+
+        <!-- 3. Yolculuk Tipi -->
+        <div class="lg:col-span-3">
+          <span class="block text-xs font-semibold text-slate-600 mb-1.5">
+            Yolculuk Tipi
+          </span>
+          <div class="grid grid-cols-2 bg-slate-100 p-1 rounded-xl border border-[#E2E8F0]" role="group" aria-label="Yolculuk Tipi">
+            <button type="button" id="oneWayBtn"
+              class="py-1.5 px-2.5 rounded-lg text-xs font-semibold transition bg-white text-slate-900 shadow-2xs">
+              Tek Yön
+            </button>
+            <button type="button" id="roundTripBtn"
+              class="py-1.5 px-2.5 rounded-lg text-xs font-semibold transition text-slate-600 hover:text-slate-900">
+              Gidiş-Dönüş
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. Temizle -->
+        <div class="lg:col-span-1">
+          <button type="button" id="resetBtn"
+            class="w-full py-2.5 px-3 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs font-semibold transition">
+            Temizle
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADIM 2: Etkileşimli Şematik Metro Haritası -->
+    <section aria-label="Etkileşimli Metro Haritası" class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs overflow-hidden">
+      <!-- Harita Üst Durum Satırı ve Minimalist 4 Öğeli Lejant -->
+      <div class="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0] flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+        <p id="mapStatusHint" class="text-xs sm:text-sm font-medium text-slate-600">
+          Haritadan önce biniş, ardından iniş durağına tıklayın.
+        </p>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium text-slate-600">
+          <span class="inline-flex items-center gap-1.5">
+            <span class="w-3 h-1.5 rounded-full bg-[#2563EB]"></span>
+            M1-M2-M3 (Mavi)
+          </span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="w-3 h-1.5 rounded-full bg-[#DC2626]"></span>
+            M4 (Kırmızı)
+          </span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="w-3 h-1.5 rounded-full bg-[#059669]"></span>
+            A1 (Yeşil)
+          </span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="inline-flex items-center justify-center w-4 h-4 rounded-md bg-slate-900 text-white">
+              <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"/>
+              </svg>
+            </span>
+            Kitap Alım Noktası
+          </span>
+        </div>
+      </div>
+
+      <!-- Yüzen İstasyon Tooltip -->
+      <div id="stationTooltip"
+        class="hidden pointer-events-none fixed z-50 bg-slate-900/95 text-white rounded-xl px-3.5 py-2.5 shadow-lg text-xs max-w-xs backdrop-blur-xs">
+        <div id="tooltipName" class="font-semibold text-sm text-white"></div>
+        <div id="tooltipLines" class="flex flex-wrap gap-1 mt-1"></div>
+        <div id="tooltipLibrary" class="hidden mt-1.5 pt-1.5 border-t border-white/15 text-amber-300 font-medium"></div>
+      </div>
+
+      <!-- SVG Şematik Harita Alanı -->
+      <div class="w-full overflow-x-auto bg-white">
+        <div class="min-w-[880px]">
+          <svg id="metroMapSvg" viewBox="0 0 1240 735" class="w-full h-auto block" role="img" aria-label="Ankara Raylı Sistemler Şematik Haritası">
+            <defs>
+              <filter id="pathGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3.5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Katman 1: Ana Hat Çizgileri -->
+            <g id="baseLinesGroup" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <!-- M1-M2-M3 (Mavi #2563EB) -->
+              <polyline
+                points="60,120 130,120 200,120 270,120 340,120 370,150 400,180 430,210 460,240 490,270 520,300 555,335 605,335 655,335 705,335 755,335 800,335 840,335 868,363 895,390 895,438 895,486 895,535 830,565 760,565 690,565 625,565 555,565 485,565 405,565 330,565 265,565 200,565 145,615"
+                stroke="#2563EB" stroke-width="6.5" opacity="0.88" />
+
+              <!-- M4 (Kırmızı #DC2626) -->
+              <polyline
+                points="955,65 1035,65 1035,115 1035,165 1035,215 1035,265 1035,315 975,355 895,390 830,450 858,495 895,535"
+                stroke="#DC2626" stroke-width="6.5" opacity="0.88" />
+
+              <!-- A1 (Yeşil #059669) -->
+              <polyline
+                points="505,695 562,672 619,649 676,626 733,603 790,580 842,557 895,535 990,518 1085,502 1175,486"
+                stroke="#059669" stroke-width="6.5" opacity="0.88" />
+            </g>
+
+            <!-- Katman 2: Maltepe <-> Gar Yaya Aktarma Bağlantısı -->
+            <g id="transferLinkGroup">
+              <line x1="790" y1="580" x2="830" y2="450" stroke="#64748B" stroke-width="2" stroke-dasharray="5 4" />
+              <rect x="769" y="505" width="82" height="18" rx="6" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1" />
+              <text x="810" y="517" text-anchor="middle" font-size="9" font-weight="600" fill="#475569">Yaya Aktarma</text>
+            </g>
+
+            <!-- Katman 3: Aktif Rota Vurgusu -->
+            <g id="activeRouteGroup" fill="none" stroke-linecap="round" stroke-linejoin="round"></g>
+
+            <!-- Katman 4: 54 İstasyon Noktaları ve Etiketleri -->
+            <g id="stationsGroup"></g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADIM 3: Özet Kartları ve Kitap Önerileri -->
+    <section id="resultsWrapper" aria-label="Yolculuk Özeti ve Kitap Önerileri" class="space-y-5">
+      <!-- Henüz durak seçilmediğinde gösterilen sade yönlendirme -->
+      <div id="emptyPromptCard" class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs p-8 text-center">
+        <p class="text-sm sm:text-base font-semibold text-slate-800">
+          Başlamak için haritadan veya yukarıdaki listeden biniş ve iniş durağınızı seçin.
+        </p>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+          Seçiminize göre yolculuk süreniz, size en yakın kitap alım durağı ve okuyabileceğiniz eserler otomatik listelenir.
+        </p>
+        <button type="button" id="sampleRouteBtn"
+          class="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition">
+          Örnek Rota Göster (Şehitler → ODTÜ)
+        </button>
+      </div>
+
+      <!-- Aktif Sonuç Alanı -->
+      <div id="activeResultsArea" class="hidden space-y-5">
+        <!-- 3 Özet Kartı -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Kart 1: Yolculuk Süresi -->
+          <div class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs p-5">
+            <span class="text-xs font-semibold text-slate-500">Yolculuk Süresi</span>
+            <div id="cardDurationValue" class="text-2xl font-bold text-slate-900 mt-1">
+              24.0 dk
+            </div>
+            <p id="cardDurationSub" class="text-xs text-slate-600 mt-1.5">
+              12 durak · 0 aktarma · ~16 sayfa okunabilir
+            </p>
+          </div>
+
+          <!-- Kart 2: Size En Yakın Kitap Durağı -->
+          <div class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs p-5">
+            <span class="text-xs font-semibold text-slate-500">Size En Yakın Kitap Durağı</span>
+            <div id="cardNearestStation" class="text-lg font-bold text-slate-900 mt-1">
+              Meteoroloji
+            </div>
+            <p id="cardNearestDetail" class="text-xs text-slate-600 mt-1.5">
+              Meteoroloji Çalışma İstasyonu · 5 durak / 12.5 dk
+            </p>
+          </div>
+
+          <!-- Kart 3: Okuma Durumu -->
+          <div class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs p-5">
+            <span class="text-xs font-semibold text-slate-500">Okuma Durumu</span>
+            <div id="cardReadingStatusTitle" class="text-lg font-bold text-slate-900 mt-1">
+              Tamamı Bitirilebilir (%100)
+            </div>
+            <p id="cardReadingStatusSub" class="text-xs text-slate-600 mt-1.5">
+              Bu sürede bitirilebilecek 18 eser bulundu
+            </p>
+          </div>
+        </div>
+
+        <!-- Bilgilendirme Banner'ı -->
+        <div id="statusBanner" class="rounded-2xl border px-5 py-4 text-sm"></div>
+
+        <!-- Önerilen Kitap Kartları (En fazla 6 eser) -->
+        <div id="booksGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    /**
+     * 1. GÖMÜLÜ 80 KİTAPLIK VERİ SETİ
+     */
+    const BOOKS_DATA = [
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Karabibik", "yazar": "Nabizade Nazım", "dil": "Türkçe", "sayfa": 40, "kat_no": 10746, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10746"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Kara Keşiş", "yazar": "Anton Pavloviç Çehov", "dil": "Türkçe", "sayfa": 43, "kat_no": 10750, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10750"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Karabibik", "yazar": "Nabizade Nazım", "dil": "Türkçe", "sayfa": 46, "kat_no": 10761, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10761"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Bir Çöküşün Öyküsü", "yazar": "Stefan Zweig", "dil": "Türkçe", "sayfa": 53, "kat_no": 10635, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10635"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Nurusiyah", "yazar": "Ercan Yılmaz", "dil": "Türkçe", "sayfa": 53, "kat_no": 10691, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10691"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Köleler Adası", "yazar": "Pierre de Marivaux", "dil": "Türkçe", "sayfa": 55, "kat_no": 10494, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10494"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Diri Gömülen", "yazar": "Sadık Hidayet", "dil": "Türkçe", "sayfa": 74, "kat_no": 10607, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10607"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Umutsuzlar Parkı", "yazar": "Edip Cansever", "dil": "Türkçe", "sayfa": 75, "kat_no": 10689, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10689"},
+      {"kutuphane": "Bahçelievler Genç Akademi", "kitap_adi": "Sevgi Neredeyse Tanrı Oradadır", "yazar": "Lev Nikolayeviç Tolstoy", "dil": "Türkçe", "sayfa": 78, "kat_no": 10781, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10781"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Kaybolan Oyuncak Dükkanı", "yazar": "Edmund Crispin", "dil": "Türkçe", "sayfa": 22, "kat_no": 7627, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7627"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Harname", "yazar": "Şeyhi", "dil": "Türkçe", "sayfa": 40, "kat_no": 1017, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1017"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Meczup", "yazar": "Halil Cibran", "dil": "Türkçe", "sayfa": 51, "kat_no": 3217, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3217"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Harikalar Odası", "yazar": "Georges Perec", "dil": "Türkçe", "sayfa": 67, "kat_no": 3094, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3094"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "İvan İlyiç'in Ölümü", "yazar": "Lev Nikolayeviç Tolstoy", "dil": "Türkçe", "sayfa": 74, "kat_no": 1379, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1379"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Cemile", "yazar": "Cengiz Aytmatov", "dil": "Türkçe", "sayfa": 75, "kat_no": 3179, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3179"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Sevgim ve Izdırabım", "yazar": "Mükerrem Kamil", "dil": "Türkçe", "sayfa": 77, "kat_no": 3053, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3053"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Soytarı Çiçekleri", "yazar": "Osamu Dazai", "dil": "Türkçe", "sayfa": 77, "kat_no": 3188, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3188"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Kutsal Topraklardan On Beş Gün", "yazar": "İsmail Güleç", "dil": "Türkçe", "sayfa": 78, "kat_no": 7722, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7722"},
+      {"kutuphane": "Genç Akademi Batıkent", "kitap_adi": "Yalnız Efe", "yazar": "Ömer Seyfettin", "dil": "Türkçe", "sayfa": 79, "kat_no": 3152, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3152"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "13 Eylül Sakarya Zafer Öyküleri", "yazar": "Belirtilmemiş", "dil": "Türkçe", "sayfa": 25, "kat_no": 7791, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7791"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "Don't Forget the Poppies", "yazar": "Hikmet Betinkaya", "dil": "İngilizce", "sayfa": 50, "kat_no": 7770, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7770"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "Şehir ve Güvenlik", "yazar": "Belirtilmemiş", "dil": "Türkçe", "sayfa": 50, "kat_no": 7900, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7900"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "Başlık Belirtilmemiş (Kayıt #7729)", "yazar": "Belirtilmemiş", "dil": "Belirtilmemiş", "sayfa": 68, "kat_no": 7729, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7729"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "Başlık Belirtilmemiş (Kayıt #7727)", "yazar": "Belirtilmemiş", "dil": "Belirtilmemiş", "sayfa": 78, "kat_no": 7727, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7727"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "Bir Çöküşün Öyküsü", "yazar": "Stefan Zweig", "dil": "Türkçe", "sayfa": 78, "kat_no": 3310, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3310"},
+      {"kutuphane": "Genç Akademi Kafe Sıhhiye", "kitap_adi": "Bilinmeyen Bir Kadının Mektubu", "yazar": "Stefan Zweig", "dil": "Türkçe", "sayfa": 79, "kat_no": 1181, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1181"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Meczup", "yazar": "Halil Cibran", "dil": "Türkçe", "sayfa": 51, "kat_no": 3217, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3217"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Çocuklar Soruyor Tarih Dede ve Bilge Öğretmen Anlatıyor", "yazar": "Y. Doğan Çetinkaya", "dil": "Türkçe", "sayfa": 54, "kat_no": 3118, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3118"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Satranç Ustası Don Sandalio'nun Romanı", "yazar": "Miguel de Unamuno", "dil": "Türkçe", "sayfa": 63, "kat_no": 3097, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3097"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Yüz Yüze", "yazar": "Cengiz Aytmatov", "dil": "Türkçe", "sayfa": 65, "kat_no": 3300, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3300"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Harikalar Odası", "yazar": "Georges Perec", "dil": "Türkçe", "sayfa": 67, "kat_no": 3094, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3094"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Cemile", "yazar": "Cengiz Aytmatov", "dil": "Türkçe", "sayfa": 75, "kat_no": 3179, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3179"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Sevgim ve Izdırabım", "yazar": "Mükerrem Kamil", "dil": "Türkçe", "sayfa": 77, "kat_no": 3053, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3053"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Soytarı Çiçekleri", "yazar": "Osamu Dazai", "dil": "Türkçe", "sayfa": 77, "kat_no": 3188, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3188"},
+      {"kutuphane": "Kolej TED Çalışma İstasyonu", "kitap_adi": "Yalnız Efe", "yazar": "Ömer Seyfettin", "dil": "Türkçe", "sayfa": 79, "kat_no": 3152, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=3152"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Karagöz ile Hacivat Sultanahmet'e Gidiyor", "yazar": "Enver Gedik", "dil": "Türkçe", "sayfa": 16, "kat_no": 7704, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7704"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Kaybolan Oyuncak Dükkanı", "yazar": "Edmund Crispin", "dil": "Türkçe", "sayfa": 22, "kat_no": 7627, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7627"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Strateji Konusu", "yazar": "Ahmet Kıvılcımlı", "dil": "Türkçe", "sayfa": 55, "kat_no": 7695, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7695"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Asker Oğlu", "yazar": "Ahmet Rasim", "dil": "Türkçe", "sayfa": 59, "kat_no": 7375, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7375"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "İvan İlyiç'in Ölümü", "yazar": "Lev Nikolayeviç Tolstoy", "dil": "Türkçe", "sayfa": 74, "kat_no": 7542, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7542"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Yüce Tanrı Pan", "yazar": "Arthur Machen", "dil": "Türkçe", "sayfa": 77, "kat_no": 7669, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7669"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Kutsal Topraklardan On Beş Gün", "yazar": "İsmail Güleç", "dil": "Türkçe", "sayfa": 78, "kat_no": 7722, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7722"},
+      {"kutuphane": "Meteoroloji Çalışma İstasyonu", "kitap_adi": "Beş Gün Beş Gece", "yazar": "Manuel Tiago", "dil": "Türkçe", "sayfa": 79, "kat_no": 7517, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=7517"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Binbir Gece Masalları", "yazar": "Belirtilmemiş", "dil": "Türkçe", "sayfa": 32, "kat_no": 2023, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=2023"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Freud'u Beslemek", "yazar": "Yahya Oğuz", "dil": "Türkçe", "sayfa": 47, "kat_no": 1804, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1804"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Kafein ve Piksel", "yazar": "N. Sümeyye Karabatak", "dil": "Türkçe", "sayfa": 63, "kat_no": 2008, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=2008"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Sokrates'in Savunması", "yazar": "Platon", "dil": "Türkçe", "sayfa": 63, "kat_no": 1669, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1669"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Karabibik", "yazar": "Nabizade Nazım", "dil": "Türkçe", "sayfa": 64, "kat_no": 1833, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1833"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "İdealist Öğretmen", "yazar": "Grigory Spiridonoviç Petrov", "dil": "Türkçe", "sayfa": 65, "kat_no": 1695, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1695"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Jön Türk", "yazar": "Tahsin Nahid", "dil": "Türkçe", "sayfa": 67, "kat_no": 1830, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1830"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Bernarda Alba'nın Evi", "yazar": "Frederico Garcia Lorca", "dil": "Türkçe", "sayfa": 69, "kat_no": 1866, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1866"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Yayı Eksik Viyola", "yazar": "Halil İbrahim Özbay", "dil": "Türkçe", "sayfa": 73, "kat_no": 1728, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1728"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Şehre Bodoslama", "yazar": "Muhammed Münzevi", "dil": "Türkçe", "sayfa": 78, "kat_no": 1891, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=1891"},
+      {"kutuphane": "ODTÜ Çalışma İstasyonu", "kitap_adi": "Dönüşüm", "yazar": "Franz Kafka", "dil": "Türkçe", "sayfa": 79, "kat_no": 2037, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=2037"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Religon as Ideology", "yazar": "Şerif Mardin", "dil": "İngilizce", "sayfa": 12, "kat_no": 10202, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10202"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Türkiye'de Nüfus Dağılışı: Renkli Harita ile", "yazar": "Hamid Sadi Selen", "dil": "Türkçe", "sayfa": 15, "kat_no": 10230, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10230"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Güneydoğu Anadolu Projesi Master Plan Çalışması: Master Plan Nihai Raporu", "yazar": "T.C. Başbakanlık Devlet Planlama Teşkilatı", "dil": "Türkçe", "sayfa": 27, "kat_no": 10249, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10249"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Türkiye'de Bölge Planlaması Hakkında Rapor", "yazar": "Lylod Rodwin", "dil": "Türkçe", "sayfa": 27, "kat_no": 10238, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10238"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Benim Haklarım", "yazar": "Güven Tunç", "dil": "Türkçe", "sayfa": 30, "kat_no": 10157, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10157"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Bölge Dayanışma Birliği: 1. Toplantı", "yazar": "Belirtilmemiş", "dil": "Türkçe", "sayfa": 30, "kat_no": 10242, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10242"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Kürtlerin Kökü", "yazar": "M. Fahrettin Kırzıoğlu", "dil": "Türkçe", "sayfa": 30, "kat_no": 10227, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10227"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Sanayileşme ve Bölgesel Denge", "yazar": "Ertuğrul Soysal", "dil": "Türkçe", "sayfa": 31, "kat_no": 10231, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10231"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Demokratik Katılımcı Özerk Belediyecilik", "yazar": "Binali Ağaç", "dil": "Türkçe", "sayfa": 32, "kat_no": 10175, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10175"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Doğu ve İnsan Sorunu", "yazar": "Orhan Tükdoğan", "dil": "Türkçe", "sayfa": 39, "kat_no": 10239, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10239"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Suyu Çekilmiş Değirmen", "yazar": "M. Turan Bayazıt", "dil": "Türkçe", "sayfa": 43, "kat_no": 10155, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10155"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Safranbolu'dan Bodrum'a Zeki Müren'le Bin Kilometre", "yazar": "Tuğba Turan", "dil": "Türkçe", "sayfa": 45, "kat_no": 10066, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10066"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Aydınlık: Kırık Yılın Şiirleri", "yazar": "Aydın Aydın", "dil": "Türkçe", "sayfa": 50, "kat_no": 10068, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10068"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Atatürk'ü Sevemeyenlerden Siyah Lekeler ve Biz", "yazar": "Mehmet Arif Demirer", "dil": "Türkçe", "sayfa": 54, "kat_no": 10346, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10346"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Taş Ayna", "yazar": "Yekta Güngör Özden", "dil": "Türkçe", "sayfa": 63, "kat_no": 10051, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10051"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Şehrin Gölgeleri", "yazar": "Ali Cengizhan", "dil": "Türkçe", "sayfa": 68, "kat_no": 10131, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10131"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Sebil", "yazar": "Celalettin Algan", "dil": "Türkçe", "sayfa": 69, "kat_no": 10099, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10099"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Güneydoğu Anadolu'nun Sürdürülebilir Kalkınma Potansiyeli", "yazar": "Matthew Richardson", "dil": "Türkçe", "sayfa": 76, "kat_no": 10190, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10190"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Denizin Sesiyle", "yazar": "Ahmet Özer", "dil": "Türkçe", "sayfa": 79, "kat_no": 10134, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10134"},
+      {"kutuphane": "Prof. Dr. Ruşen Keleş Kütüphanesi", "kitap_adi": "Çocuklar Varken", "yazar": "Ahmet Özer", "dil": "Türkçe", "sayfa": 79, "kat_no": 10133, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=10133"},
+      {"kutuphane": "YHT Gar Çalışma İstasyonu", "kitap_adi": "Kürkçü Dükkanı", "yazar": "Yusuf Ziya Ortaç", "dil": "Türkçe", "sayfa": 46, "kat_no": 177, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=177"},
+      {"kutuphane": "YHT Gar Çalışma İstasyonu", "kitap_adi": "Öğrenci Kız", "yazar": "Osamu Dazai", "dil": "Türkçe", "sayfa": 60, "kat_no": 299, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=299"},
+      {"kutuphane": "YHT Gar Çalışma İstasyonu", "kitap_adi": "Palto", "yazar": "Nikolay Vasilyeviç Gogol", "dil": "Türkçe", "sayfa": 66, "kat_no": 275, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=275"},
+      {"kutuphane": "YHT Gar Çalışma İstasyonu", "kitap_adi": "Space Invaders", "yazar": "Nona Fernandez", "dil": "Türkçe", "sayfa": 68, "kat_no": 283, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=283"},
+      {"kutuphane": "YHT Gar Çalışma İstasyonu", "kitap_adi": "Fatih İstanbul'da", "yazar": "M. Turhan Tan", "dil": "Türkçe", "sayfa": 77, "kat_no": 260, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=260"},
+      {"kutuphane": "YHT Gar Çalışma İstasyonu", "kitap_adi": "Biz Burda İyiyiz", "yazar": "Barbaros Altuğ", "dil": "Türkçe", "sayfa": 79, "kat_no": 395, "link": "https://katalog.ankara.bel.tr/cgi-bin/koha/opac-detail.pl?biblionumber=395"}
+    ];
+
+    /**
+     * 2. RAYLI SİSTEM HATLARI VE İSTASYON KOORDİNATLARI (54 İstasyon)
+     */
+    const RAIL_LINES = {
+      "M1-M2-M3": {
+        color: "#2563EB",
+        badgeClass: "bg-blue-600 text-white",
+        stepMin: 2.0,
+        stations: [
+          "Koru", "Çayyolu", "Ümitköy", "Beytepe", "Tarım Bakanlığı/Danıştay",
+          "Bilkent", "ODTÜ", "MTA", "Söğütözü", "Milli Kütüphane", "Necatibey",
+          "15 Temmuz Kızılay Milli İrade", "Sıhhiye", "Ulus",
+          "Atatürk Kültür Merkezi", "Akköprü", "İvedik", "Yenimahalle",
+          "Demetevler", "Hastane", "Macunköy", "OSTİM", "Batıkent",
+          "Batı Merkez", "Mesa", "Botanik", "İstanbul Yolu", "Eryaman 1-2",
+          "Eryaman 5", "Devlet Mah.", "Harikalar Diyarı", "Fatih", "GOP",
+          "OSB-Törekent"
+        ]
+      },
+      "M4": {
+        color: "#DC2626",
+        badgeClass: "bg-red-600 text-white",
+        stepMin: 2.5,
+        stations: [
+          "Şehitler", "Dutluk", "Kuyubaşı", "Mecidiye", "Belediye",
+          "Meteoroloji", "Dışkapı", "ASKİ", "Atatürk Kültür Merkezi",
+          "Gar", "Adliye", "15 Temmuz Kızılay Milli İrade"
+        ]
+      },
+      "A1": {
+        color: "#059669",
+        badgeClass: "bg-emerald-600 text-white",
+        stepMin: 1.8,
+        stations: [
+          "AŞTİ", "Emek", "Bahçelievler", "Beşevler",
+          "Anadolu/Anıtkabir (Tandoğan)", "Maltepe", "Demirtepe",
+          "15 Temmuz Kızılay Milli İrade", "Kolej", "Kurtuluş", "Dikimevi"
+        ]
+      }
+    };
+
+    const TRANSFERS = [
+      { s1: "15 Temmuz Kızılay Milli İrade", s2: "15 Temmuz Kızılay Milli İrade", min: 4.0 },
+      { s1: "Atatürk Kültür Merkezi", s2: "Atatürk Kültür Merkezi", min: 3.5 },
+      { s1: "Maltepe", s2: "Gar", min: 5.0 }
+    ];
+
+    const LIBRARY_STATIONS = {
+      "Bahçelievler Genç Akademi": "Bahçelievler",
+      "Genç Akademi Batıkent": "Batıkent",
+      "Genç Akademi Kafe Sıhhiye": "Sıhhiye",
+      "Kolej TED Çalışma İstasyonu": "Kolej",
+      "Meteoroloji Çalışma İstasyonu": "Meteoroloji",
+      "ODTÜ Çalışma İstasyonu": "ODTÜ",
+      "Prof. Dr. Ruşen Keleş Kütüphanesi": "15 Temmuz Kızılay Milli İrade",
+      "YHT Gar Çalışma İstasyonu": "Gar"
+    };
+
+    const STATION_TO_LIBRARY = {};
+    Object.entries(LIBRARY_STATIONS).forEach(([libName, stName]) => {
+      STATION_TO_LIBRARY[stName] = libName;
+    });
+
+    const STATION_COORDS = {
+      // M1-M2-M3 Kuzeybatı -> Merkez -> Güneybatı
+      "OSB-Törekent": { x: 60, y: 120, dx: 0, dy: -13, anchor: "middle" },
+      "GOP": { x: 130, y: 120, dx: 0, dy: 20, anchor: "middle" },
+      "Fatih": { x: 200, y: 120, dx: 0, dy: -13, anchor: "middle" },
+      "Harikalar Diyarı": { x: 270, y: 120, dx: 0, dy: 20, anchor: "middle" },
+      "Devlet Mah.": { x: 340, y: 120, dx: 10, dy: -11, anchor: "start" },
+      "Eryaman 5": { x: 370, y: 150, dx: 13, dy: 4, anchor: "start" },
+      "Eryaman 1-2": { x: 400, y: 180, dx: -13, dy: 4, anchor: "end" },
+      "İstanbul Yolu": { x: 430, y: 210, dx: 13, dy: 4, anchor: "start" },
+      "Botanik": { x: 460, y: 240, dx: -13, dy: 4, anchor: "end" },
+      "Mesa": { x: 490, y: 270, dx: 13, dy: 4, anchor: "start" },
+      "Batı Merkez": { x: 520, y: 300, dx: -13, dy: 4, anchor: "end" },
+      "Batıkent": { x: 555, y: 335, dx: -13, dy: 18, anchor: "end" },
+      "OSTİM": { x: 605, y: 335, dx: 0, dy: 21, anchor: "middle" },
+      "Macunköy": { x: 655, y: 335, dx: 0, dy: -13, anchor: "middle" },
+      "Hastane": { x: 705, y: 335, dx: 0, dy: 21, anchor: "middle" },
+      "Demetevler": { x: 755, y: 335, dx: 0, dy: -13, anchor: "middle" },
+      "Yenimahalle": { x: 800, y: 335, dx: 0, dy: 21, anchor: "middle" },
+      "İvedik": { x: 840, y: 335, dx: 0, dy: -13, anchor: "middle" },
+      "Akköprü": { x: 868, y: 363, dx: 14, dy: 2, anchor: "start" },
+      "Atatürk Kültür Merkezi": { x: 895, y: 390, dx: 16, dy: 4, anchor: "start", hub: true },
+      "Ulus": { x: 895, y: 438, dx: 14, dy: 4, anchor: "start" },
+      "Sıhhiye": { x: 895, y: 486, dx: 14, dy: 4, anchor: "start" },
+      "15 Temmuz Kızılay Milli İrade": { x: 895, y: 535, dx: 16, dy: 16, anchor: "start", hub: true },
+      "Necatibey": { x: 830, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "Milli Kütüphane": { x: 760, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "Söğütözü": { x: 690, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "MTA": { x: 625, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "ODTÜ": { x: 555, y: 565, dx: 0, dy: 21, anchor: "middle" },
+      "Bilkent": { x: 485, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "Tarım Bakanlığı/Danıştay": { x: 405, y: 565, dx: 0, dy: 21, anchor: "middle" },
+      "Beytepe": { x: 330, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "Ümitköy": { x: 265, y: 565, dx: 0, dy: 21, anchor: "middle" },
+      "Çayyolu": { x: 200, y: 565, dx: 0, dy: -13, anchor: "middle" },
+      "Koru": { x: 145, y: 615, dx: -12, dy: 16, anchor: "end" },
+
+      // M4
+      "Şehitler": { x: 955, y: 65, dx: -13, dy: 4, anchor: "end" },
+      "Dutluk": { x: 1035, y: 65, dx: 13, dy: 4, anchor: "start" },
+      "Kuyubaşı": { x: 1035, y: 115, dx: 13, dy: 4, anchor: "start" },
+      "Mecidiye": { x: 1035, y: 165, dx: 13, dy: 4, anchor: "start" },
+      "Belediye": { x: 1035, y: 215, dx: 13, dy: 4, anchor: "start" },
+      "Meteoroloji": { x: 1035, y: 265, dx: 13, dy: 4, anchor: "start" },
+      "Dışkapı": { x: 1035, y: 315, dx: 13, dy: 4, anchor: "start" },
+      "ASKİ": { x: 975, y: 355, dx: 13, dy: 12, anchor: "start" },
+      "Gar": { x: 830, y: 450, dx: -14, dy: 4, anchor: "end", hub: true },
+      "Adliye": { x: 858, y: 495, dx: -13, dy: 4, anchor: "end" },
+
+      // A1
+      "AŞTİ": { x: 505, y: 695, dx: -12, dy: 15, anchor: "end" },
+      "Emek": { x: 562, y: 672, dx: 8, dy: 18, anchor: "start" },
+      "Bahçelievler": { x: 619, y: 649, dx: 8, dy: 18, anchor: "start" },
+      "Beşevler": { x: 676, y: 626, dx: 8, dy: 18, anchor: "start" },
+      "Anadolu/Anıtkabir (Tandoğan)": { x: 733, y: 603, dx: 8, dy: 20, anchor: "start" },
+      "Maltepe": { x: 790, y: 580, dx: -10, dy: 20, anchor: "end", hub: true },
+      "Demirtepe": { x: 842, y: 557, dx: 6, dy: 19, anchor: "start" },
+      "Kolej": { x: 990, y: 518, dx: 0, dy: 22, anchor: "middle" },
+      "Kurtuluş": { x: 1085, y: 502, dx: 0, dy: -13, anchor: "middle" },
+      "Dikimevi": { x: 1175, y: 486, dx: 0, dy: 21, anchor: "middle" }
+    };
+
+    /**
+     * 3. DİJKSTRA EN KISA ROTA HESAPLAYICI
+     */
+    class RailNetwork {
+      constructor() {
+        this.graph = new Map();
+        this.stationLines = {};
+        this._build();
+      }
+
+      _key(station, line) {
+        return `${station}|||${line}`;
+      }
+
+      _addEdge(u, v, minutes, stopStep) {
+        if (!this.graph.has(u)) this.graph.set(u, []);
+        this.graph.get(u).push({ to: v, minutes, stopStep });
+      }
+
+      _build() {
+        Object.entries(RAIL_LINES).forEach(([lineName, info]) => {
+          const { stations, stepMin } = info;
+          stations.forEach((station, idx) => {
+            if (!this.stationLines[station]) this.stationLines[station] = [];
+            this.stationLines[station].push(lineName);
+
+            const curr = this._key(station, lineName);
+            if (!this.graph.has(curr)) this.graph.set(curr, []);
+
+            if (idx > 0) {
+              const prev = this._key(stations[idx - 1], lineName);
+              this._addEdge(curr, prev, stepMin, 1);
+              this._addEdge(prev, curr, stepMin, 1);
+            }
+          });
+        });
+
+        // Aynı istasyondaki farklı hatlar arası aktarma
+        Object.entries(this.stationLines).forEach(([station, lines]) => {
+          if (lines.length > 1) {
+            const transferMin = station === "Atatürk Kültür Merkezi" ? 3.5 : 4.0;
+            for (let i = 0; i < lines.length; i++) {
+              for (let j = i + 1; j < lines.length; j++) {
+                const u = this._key(station, lines[i]);
+                const v = this._key(station, lines[j]);
+                this._addEdge(u, v, transferMin, 0);
+                this._addEdge(v, u, transferMin, 0);
+              }
+            }
+          }
+        });
+
+        // Maltepe <-> Gar yaya aktarma bağlantısı
+        TRANSFERS.forEach(({ s1, s2, min }) => {
+          if (s1 !== s2) {
+            (this.stationLines[s1] || []).forEach((l1) => {
+              (this.stationLines[s2] || []).forEach((l2) => {
+                const u = this._key(s1, l1);
+                const v = this._key(s2, l2);
+                this._addEdge(u, v, min, 0);
+                this._addEdge(v, u, min, 0);
+              });
+            });
+          }
+        });
+      }
+
+      shortestPath(origin, destination) {
+        if (!origin || !destination) return null;
+        if (origin === destination) {
+          return {
+            origin,
+            destination,
+            durationMin: 0,
+            stops: 0,
+            transfers: 0,
+            pathStations: [origin],
+            steps: [{ station: origin, line: (this.stationLines[origin] || [])[0] }]
+          };
+        }
+
+        const best = new Map();
+        const prevMap = new Map();
+        const queue = [];
+
+        (this.stationLines[origin] || []).forEach((line) => {
+          const node = this._key(origin, line);
+          best.set(node, { min: 0, stops: 0, transfers: 0 });
+          queue.push({ node, min: 0, stops: 0, transfers: 0 });
+        });
+
+        const isBetter = (a, b) => {
+          if (Math.abs(a.min - b.min) > 1e-6) return a.min < b.min;
+          if (a.stops !== b.stops) return a.stops < b.stops;
+          return a.transfers < b.transfers;
+        };
+
+        let targetNode = null;
+
+        while (queue.length > 0) {
+          queue.sort((a, b) => (a.min - b.min) || (a.stops - b.stops) || (a.transfers - b.transfers));
+          const curr = queue.shift();
+          const [currStation, currLine] = curr.node.split("|||");
+
+          if (currStation === destination) {
+            targetNode = curr.node;
+            break;
+          }
+
+          const recorded = best.get(curr.node);
+          if (recorded && isBetter(recorded, curr)) continue;
+
+          (this.graph.get(curr.node) || []).forEach((edge) => {
+            const [, nextLine] = edge.to.split("|||");
+            const candidate = {
+              node: edge.to,
+              min: curr.min + edge.minutes,
+              stops: curr.stops + edge.stopStep,
+              transfers: curr.transfers + (currLine !== nextLine ? 1 : 0)
+            };
+
+            const existing = best.get(edge.to);
+            if (!existing || isBetter(candidate, existing)) {
+              best.set(edge.to, candidate);
+              prevMap.set(edge.to, curr.node);
+              queue.push(candidate);
+            }
+          });
+        }
+
+        if (!targetNode) return null;
+
+        const steps = [];
+        let cursor = targetNode;
+        while (cursor) {
+          const [station, line] = cursor.split("|||");
+          steps.push({ station, line });
+          cursor = prevMap.get(cursor);
+        }
+        steps.reverse();
+
+        const pathStations = [];
+        steps.forEach(({ station }) => {
+          if (pathStations[pathStations.length - 1] !== station) {
+            pathStations.push(station);
+          }
+        });
+
+        const finalStats = best.get(targetNode);
+        return {
+          origin,
+          destination,
+          durationMin: Number(finalStats.min.toFixed(1)),
+          stops: finalStats.stops,
+          transfers: finalStats.transfers,
+          pathStations,
+          steps
+        };
+      }
+    }
+
+    /**
+     * 4. UYGULAMA DURUMU VE DOM REFERANSLARI
+     */
+    const network = new RailNetwork();
+    const READING_SPEED_PER_HOUR = 40.0;
+    const READING_SPEED_PER_MIN = READING_SPEED_PER_HOUR / 60.0;
+
+    const state = {
+      origin: "",
+      destination: "",
+      roundTrip: false,
+      clickPhase: 0 // 0: Biniş durağı seçimi, 1: İniş durağı seçimi
+    };
+
+    const el = {
+      originSelect: document.getElementById("originSelect"),
+      destSelect: document.getElementById("destSelect"),
+      oneWayBtn: document.getElementById("oneWayBtn"),
+      roundTripBtn: document.getElementById("roundTripBtn"),
+      resetBtn: document.getElementById("resetBtn"),
+      mapStatusHint: document.getElementById("mapStatusHint"),
+      stationTooltip: document.getElementById("stationTooltip"),
+      tooltipName: document.getElementById("tooltipName"),
+      tooltipLines: document.getElementById("tooltipLines"),
+      tooltipLibrary: document.getElementById("tooltipLibrary"),
+      activeRouteGroup: document.getElementById("activeRouteGroup"),
+      stationsGroup: document.getElementById("stationsGroup"),
+      emptyPromptCard: document.getElementById("emptyPromptCard"),
+      sampleRouteBtn: document.getElementById("sampleRouteBtn"),
+      activeResultsArea: document.getElementById("activeResultsArea"),
+      cardDurationValue: document.getElementById("cardDurationValue"),
+      cardDurationSub: document.getElementById("cardDurationSub"),
+      cardNearestStation: document.getElementById("cardNearestStation"),
+      cardNearestDetail: document.getElementById("cardNearestDetail"),
+      cardReadingStatusTitle: document.getElementById("cardReadingStatusTitle"),
+      cardReadingStatusSub: document.getElementById("cardReadingStatusSub"),
+      statusBanner: document.getElementById("statusBanner"),
+      booksGrid: document.getElementById("booksGrid")
+    };
+
+    /**
+     * 5. AÇILIR LİSTELERİ DOLDURMA
+     */
+    function populateSelects() {
+      const fill = (selectNode, placeholder) => {
+        selectNode.innerHTML = "";
+        const emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = placeholder;
+        selectNode.appendChild(emptyOpt);
+
+        Object.entries(RAIL_LINES).forEach(([lineName, info]) => {
+          const optGroup = document.createElement("optgroup");
+          optGroup.label = lineName;
+          info.stations.forEach((station) => {
+            const opt = document.createElement("option");
+            opt.value = station;
+            opt.textContent = STATION_TO_LIBRARY[station]
+              ? `${station} (Kitap Noktası)`
+              : station;
+            optGroup.appendChild(opt);
+          });
+          selectNode.appendChild(optGroup);
+        });
+      };
+
+      fill(el.originSelect, "Biniş durağı seçin...");
+      fill(el.destSelect, "İniş durağı seçin...");
+    }
+
+    /**
+     * 6. ETKİLEŞİMLİ SVG HARİTAYI OLUŞTURMA VE GÜNCELLEME
+     */
+    function renderMetroMap() {
+      const svgNS = "http://www.w3.org/2000/svg";
+      el.stationsGroup.innerHTML = "";
+
+      Object.entries(STATION_COORDS).forEach(([station, pos]) => {
+        const g = document.createElementNS(svgNS, "g");
+        g.setAttribute("class", "station-group");
+        g.setAttribute("data-station", station);
+        g.setAttribute("tabindex", "0");
+        g.setAttribute("role", "button");
+        g.setAttribute("aria-label", station);
+
+        const lines = network.stationLines[station] || [];
+        const primaryColor = RAIL_LINES[lines[0]]?.color || "#0f172a";
+        const hasLibrary = Boolean(STATION_TO_LIBRARY[station]);
+
+        // Dokunma/tıklama kolaylığı için görünmez geniş daire
+        const hitCircle = document.createElementNS(svgNS, "circle");
+        hitCircle.setAttribute("cx", pos.x);
+        hitCircle.setAttribute("cy", pos.y);
+        hitCircle.setAttribute("r", "16");
+        hitCircle.setAttribute("fill", "transparent");
+        g.appendChild(hitCircle);
+
+        // Nabız halkası
+        const pulseCircle = document.createElementNS(svgNS, "circle");
+        pulseCircle.setAttribute("cx", pos.x);
+        pulseCircle.setAttribute("cy", pos.y);
+        pulseCircle.setAttribute("r", "11");
+        pulseCircle.setAttribute("fill", "none");
+        pulseCircle.setAttribute("stroke", "#2563EB");
+        pulseCircle.setAttribute("stroke-width", "2.5");
+        pulseCircle.setAttribute("class", "marker-pulse hidden");
+        pulseCircle.setAttribute("data-role", "pulse");
+        g.appendChild(pulseCircle);
+
+        // İstasyon noktası
+        const baseRadius = pos.hub ? "7" : hasLibrary ? "6" : "4.8";
+        const baseStroke = pos.hub ? "#0f172a" : primaryColor;
+
+        const dot = document.createElementNS(svgNS, "circle");
+        dot.setAttribute("cx", pos.x);
+        dot.setAttribute("cy", pos.y);
+        dot.setAttribute("r", baseRadius);
+        dot.setAttribute("fill", "#FFFFFF");
+        dot.setAttribute("stroke", baseStroke);
+        dot.setAttribute("stroke-width", pos.hub ? "3.2" : "2.8");
+        dot.setAttribute("class", "station-dot");
+        dot.setAttribute("data-role", "dot");
+        dot.setAttribute("data-base-r", baseRadius);
+        dot.setAttribute("data-base-stroke", baseStroke);
+        g.appendChild(dot);
+
+        // Kitap Alım Noktası İkonu
+        if (hasLibrary) {
+          const iconG = document.createElementNS(svgNS, "g");
+          iconG.setAttribute("transform", `translate(${pos.x - 7}, ${pos.y - 21})`);
+          iconG.setAttribute("pointer-events", "none");
+
+          const bg = document.createElementNS(svgNS, "rect");
+          bg.setAttribute("width", "14");
+          bg.setAttribute("height", "11");
+          bg.setAttribute("rx", "3");
+          bg.setAttribute("fill", "#0F172A");
+          bg.setAttribute("stroke", "#FFFFFF");
+          bg.setAttribute("stroke-width", "1");
+          iconG.appendChild(bg);
+
+          const book = document.createElementNS(svgNS, "path");
+          book.setAttribute("d", "M3.5 3C5 2.6 6.2 2.8 7 3.5C7.8 2.8 9 2.6 10.5 3V8C9 7.6 7.8 7.8 7 8.5C6.2 7.8 5 7.6 3.5 8V3Z");
+          book.setAttribute("fill", "#FFFFFF");
+          iconG.appendChild(book);
+
+          g.appendChild(iconG);
+        }
+
+        // İstasyon Etiketi
+        const label = document.createElementNS(svgNS, "text");
+        label.setAttribute("x", pos.x + pos.dx);
+        label.setAttribute("y", pos.y + pos.dy);
+        label.setAttribute("text-anchor", pos.anchor);
+        label.setAttribute(
+          "class",
+          `station-label ${pos.hub ? "station-label-hub" : ""} ${hasLibrary ? "station-label-lib" : ""}`
+        );
+        label.setAttribute("data-role", "label");
+        label.textContent = station;
+        g.appendChild(label);
+
+        const handleSelect = () => onStationClick(station);
+        g.addEventListener("click", handleSelect);
+        g.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleSelect();
+          }
+        });
+
+        g.addEventListener("mouseenter", (e) => showTooltip(e, station));
+        g.addEventListener("mousemove", moveTooltip);
+        g.addEventListener("mouseleave", () => el.stationTooltip.classList.add("hidden"));
+
+        el.stationsGroup.appendChild(g);
+      });
+    }
+
+    function showTooltip(event, station) {
+      const lines = network.stationLines[station] || [];
+      const libraryName = STATION_TO_LIBRARY[station];
+
+      el.tooltipName.textContent = station;
+      el.tooltipLines.innerHTML = lines
+        .map((line) => {
+          const cls = RAIL_LINES[line]?.badgeClass || "bg-slate-700 text-white";
+          return `<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold ${cls}">${line}</span>`;
+        })
+        .join("");
+
+      if (libraryName) {
+        el.tooltipLibrary.classList.remove("hidden");
+        el.tooltipLibrary.textContent = `Kitap Alım Noktası: ${libraryName}`;
+      } else {
+        el.tooltipLibrary.classList.add("hidden");
+      }
+
+      el.stationTooltip.classList.remove("hidden");
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      const offset = 14;
+      let x = event.clientX + offset;
+      let y = event.clientY + offset;
+      const box = el.stationTooltip.getBoundingClientRect();
+      if (x + box.width > window.innerWidth - 10) x = event.clientX - box.width - offset;
+      if (y + box.height > window.innerHeight - 10) y = event.clientY - box.height - offset;
+      el.stationTooltip.style.left = `${Math.max(8, x)}px`;
+      el.stationTooltip.style.top = `${Math.max(8, y)}px`;
+    }
+
+    function onStationClick(station) {
+      if (state.clickPhase === 0 || !state.origin) {
+        // 1. tık (veya 3. tık): yeni Biniş Durağı
+        state.origin = station;
+        state.destination = "";
+        state.clickPhase = 1;
+      } else {
+        // 2. tık: İniş Durağı
+        if (station === state.origin) {
+          state.destination = "";
+          state.clickPhase = 1;
+        } else {
+          state.destination = station;
+          state.clickPhase = 0;
+        }
+      }
+      updateUI();
+    }
+
+    function updateMapVisuals(route) {
+      const svgNS = "http://www.w3.org/2000/svg";
+      el.activeRouteGroup.innerHTML = "";
+
+      const hasActiveRoute = Boolean(route && route.pathStations.length > 1);
+      const routeSet = new Set(route ? route.pathStations : []);
+
+      // Aktif rota segmentlerini vurgula
+      if (hasActiveRoute) {
+        for (let i = 0; i < route.steps.length - 1; i++) {
+          const p1 = STATION_COORDS[route.steps[i].station];
+          const p2 = STATION_COORDS[route.steps[i + 1].station];
+          if (!p1 || !p2 || (p1.x === p2.x && p1.y === p2.y)) continue;
+
+          const halo = document.createElementNS(svgNS, "line");
+          halo.setAttribute("x1", p1.x);
+          halo.setAttribute("y1", p1.y);
+          halo.setAttribute("x2", p2.x);
+          halo.setAttribute("y2", p2.y);
+          halo.setAttribute("stroke", "#38BDF8");
+          halo.setAttribute("stroke-width", "11");
+          halo.setAttribute("opacity", "0.35");
+          halo.setAttribute("filter", "url(#pathGlow)");
+          el.activeRouteGroup.appendChild(halo);
+
+          const dash = document.createElementNS(svgNS, "line");
+          dash.setAttribute("x1", p1.x);
+          dash.setAttribute("y1", p1.y);
+          dash.setAttribute("x2", p2.x);
+          dash.setAttribute("y2", p2.y);
+          dash.setAttribute("stroke", "#0F172A");
+          dash.setAttribute("stroke-width", "4");
+          dash.setAttribute("class", "active-route-dash");
+          el.activeRouteGroup.appendChild(dash);
+        }
+      }
+
+      // İstasyon noktalarını ve opaklıklarını güncelle
+      el.stationsGroup.querySelectorAll(".station-group").forEach((g) => {
+        const station = g.getAttribute("data-station");
+        const dot = g.querySelector('[data-role="dot"]');
+        const pulse = g.querySelector('[data-role="pulse"]');
+        const label = g.querySelector('[data-role="label"]');
+        const baseR = dot.getAttribute("data-base-r");
+        const baseStroke = dot.getAttribute("data-base-stroke");
+
+        if (station === state.origin) {
+          dot.setAttribute("fill", "#059669");
+          dot.setAttribute("stroke", "#FFFFFF");
+          dot.setAttribute("stroke-width", "3.2");
+          dot.setAttribute("r", "9");
+          pulse.setAttribute("stroke", "#059669");
+          pulse.classList.remove("hidden");
+          label.classList.remove("station-dimmed");
+        } else if (station === state.destination) {
+          dot.setAttribute("fill", "#E11D48");
+          dot.setAttribute("stroke", "#FFFFFF");
+          dot.setAttribute("stroke-width", "3.2");
+          dot.setAttribute("r", "9");
+          pulse.setAttribute("stroke", "#E11D48");
+          pulse.classList.remove("hidden");
+          label.classList.remove("station-dimmed");
+        } else if (hasActiveRoute && routeSet.has(station)) {
+          dot.setAttribute("fill", "#2563EB");
+          dot.setAttribute("stroke", "#FFFFFF");
+          dot.setAttribute("stroke-width", "2.5");
+          dot.setAttribute("r", "6.5");
+          pulse.classList.add("hidden");
+          label.classList.remove("station-dimmed");
+        } else {
+          dot.setAttribute("fill", "#FFFFFF");
+          dot.setAttribute("stroke", baseStroke);
+          dot.setAttribute("stroke-width", baseR === "7" ? "3.2" : "2.8");
+          dot.setAttribute("r", baseR);
+          pulse.classList.add("hidden");
+          if (hasActiveRoute) {
+            label.classList.add("station-dimmed");
+          } else {
+            label.classList.remove("station-dimmed");
+          }
+        }
+      });
+
+      // BİNİŞ ve İNİŞ etiket balonları
+      const drawPill = (station, text, bgColor) => {
+        const pos = STATION_COORDS[station];
+        if (!pos) return;
+        const pillG = document.createElementNS(svgNS, "g");
+        pillG.setAttribute("transform", `translate(${pos.x - 23}, ${pos.y - 35})`);
+        pillG.setAttribute("pointer-events", "none");
+
+        const rect = document.createElementNS(svgNS, "rect");
+        rect.setAttribute("width", "46");
+        rect.setAttribute("height", "17");
+        rect.setAttribute("rx", "6");
+        rect.setAttribute("fill", bgColor);
+        rect.setAttribute("stroke", "#FFFFFF");
+        rect.setAttribute("stroke-width", "1.5");
+        pillG.appendChild(rect);
+
+        const label = document.createElementNS(svgNS, "text");
+        label.setAttribute("x", "23");
+        label.setAttribute("y", "12");
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("fill", "#FFFFFF");
+        label.setAttribute("font-size", "9");
+        label.setAttribute("font-weight", "700");
+        label.textContent = text;
+        pillG.appendChild(label);
+
+        el.activeRouteGroup.appendChild(pillG);
+      };
+
+      if (state.origin) drawPill(state.origin, "BİNİŞ", "#059669");
+      if (state.destination) drawPill(state.destination, "İNİŞ", "#E11D48");
+    }
+
+    /**
+     * 7. ÖNERİ HESAPLAMA VE SONUÇ KARTLARINI RENDER ETME
+     */
+    function computeRecommendations() {
+      if (!state.origin || !state.destination || state.origin === state.destination) {
+        return null;
+      }
+
+      const route = network.shortestPath(state.origin, state.destination);
+      if (!route) return null;
+
+      const tripDurationMin = Number((route.durationMin * (state.roundTrip ? 2 : 1)).toFixed(1));
+      const readablePages = Number((tripDurationMin * READING_SPEED_PER_MIN).toFixed(1));
+      const routeStopSet = new Set(route.pathStations);
+
+      // Biniş durağından 8 kütüphane durağına olan mesafeleri hesapla
+      const libraryDistances = {};
+      Object.entries(LIBRARY_STATIONS).forEach(([libName, stName]) => {
+        const distRoute = network.shortestPath(state.origin, stName);
+        libraryDistances[libName] = {
+          library: libName,
+          pickupStation: stName,
+          distStops: distRoute ? distRoute.stops : 999,
+          distMin: distRoute ? distRoute.durationMin : 999,
+          onRoute: routeStopSet.has(stName)
+        };
+      });
+
+      const nearestLibrary = Object.values(libraryDistances).sort(
+        (a, b) => (a.distMin - b.distMin) || (a.distStops - b.distStops)
+      )[0];
+
+      // Kitapları zenginleştir
+      const enrichedBooks = BOOKS_DATA.map((book) => {
+        const distInfo = libraryDistances[book.kutuphane] || {
+          pickupStation: "Bilinmiyor",
+          distStops: 999,
+          distMin: 999,
+          onRoute: false
+        };
+        const bookReadingMin = Number(((book.sayfa / READING_SPEED_PER_HOUR) * 60).toFixed(1));
+        const readableBookPages = Math.min(book.sayfa, Math.floor(readablePages));
+        const okumaYuzdesi = Math.min(
+          100,
+          Number(((tripDurationMin / Math.max(bookReadingMin, 0.1)) * 100).toFixed(1))
+        );
+        const canFinish = bookReadingMin <= tripDurationMin;
+
+        return {
+          ...book,
+          ...distInfo,
+          bookReadingMin,
+          readableBookPages,
+          okumaYuzdesi,
+          canFinish
+        };
+      });
+
+      // kat_no'ya göre tekilleştir (Biniş durağına en yakın şubedeki kopyayı tut)
+      enrichedBooks.sort((a, b) => (a.distMin - b.distMin) || (a.distStops - b.distStops));
+      const uniqueByKatNo = new Map();
+      enrichedBooks.forEach((item) => {
+        if (!uniqueByKatNo.has(item.kat_no)) {
+          uniqueByKatNo.set(item.kat_no, item);
+        }
+      });
+      const deduplicated = Array.from(uniqueByKatNo.values());
+
+      const finishableBooks = deduplicated.filter((b) => b.canFinish);
+      const hasFinishable = finishableBooks.length > 0;
+
+      let recommendedBooks;
+      if (hasFinishable) {
+        recommendedBooks = [...finishableBooks]
+          .sort((a, b) => {
+            const diffA = Math.abs(tripDurationMin - a.bookReadingMin);
+            const diffB = Math.abs(tripDurationMin - b.bookReadingMin);
+            return (a.distMin - b.distMin) || (diffA - diffB) || (a.sayfa - b.sayfa);
+          })
+          .slice(0, 6);
+      } else {
+        recommendedBooks = [...deduplicated]
+          .sort((a, b) => {
+            return (b.okumaYuzdesi - a.okumaYuzdesi) || (a.distMin - b.distMin) || (a.sayfa - b.sayfa);
+          })
+          .slice(0, 6);
+      }
+
+      return {
+        route,
+        tripDurationMin,
+        readablePages,
+        nearestLibrary,
+        hasFinishable,
+        finishableCount: finishableBooks.length,
+        books: recommendedBooks
+      };
+    }
+
+    function renderResults(result) {
+      if (!result) {
+        el.emptyPromptCard.classList.remove("hidden");
+        el.activeResultsArea.classList.add("hidden");
+        return;
+      }
+
+      el.emptyPromptCard.classList.add("hidden");
+      el.activeResultsArea.classList.remove("hidden");
+
+      const {
+        route,
+        tripDurationMin,
+        readablePages,
+        nearestLibrary,
+        hasFinishable,
+        finishableCount,
+        books
+      } = result;
+
+      const totalStops = state.roundTrip ? route.stops * 2 : route.stops;
+      const totalTransfers = state.roundTrip ? route.transfers * 2 : route.transfers;
+
+      // Kart 1: Yolculuk Süresi
+      el.cardDurationValue.textContent = `${tripDurationMin.toFixed(1)} dk`;
+      el.cardDurationSub.textContent = `${totalStops} durak · ${totalTransfers} aktarma · ~${Math.round(readablePages)} sayfa okunabilir`;
+
+      // Kart 2: Size En Yakın Kitap Durağı
+      el.cardNearestStation.textContent = nearestLibrary.pickupStation;
+      const nearestDistText =
+        nearestLibrary.distStops === 0
+          ? "Bulunduğunuz durakta (0 durak)"
+          : `${nearestLibrary.distStops} durak / ${nearestLibrary.distMin} dk`;
+      el.cardNearestDetail.textContent = `${nearestLibrary.library} · ${nearestDistText}`;
+
+      // Kart 3: Okuma Durumu & Banner
+      if (hasFinishable) {
+        el.cardReadingStatusTitle.textContent = "Tamamı Bitirilebilir (%100)";
+        el.cardReadingStatusSub.textContent = `${finishableCount} farklı kitap bu yolculukta bitirilebilir`;
+
+        el.statusBanner.className = "rounded-2xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-sm text-emerald-950";
+        el.statusBanner.innerHTML = `
+          <span class="font-semibold">${route.origin} → ${route.destination}</span> (${tripDurationMin} dk) yolculuğunuzda tamamını bitirebileceğiniz kitaplar, bulunduğunuz durağa yakınlık sırasıyla listelendi.
+        `;
+      } else {
+        el.cardReadingStatusTitle.textContent = "Kısmi Okuma Önerisi";
+        el.cardReadingStatusSub.textContent = "Bu sürede tamamı biten eser yok; okuma yüzdeleri gösteriliyor";
+
+        el.statusBanner.className = "rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-sm text-amber-950";
+        el.statusBanner.innerHTML = `
+          <span class="font-semibold">Bilgi:</span> Seçilen duraklar arasındaki <span class="font-semibold">${tripDurationMin} dakikalık</span> sürede tamamı bitirilebilecek bir kitap bulunmamaktadır (en fazla ~${Math.round(readablePages)} sayfa okunabilir). Aşağıda yolculuğunuz boyunca en yüksek yüzdesini okuyabileceğiniz eserler sıralanmıştır.
+        `;
+      }
+
+      // Kitap Kartları
+      el.booksGrid.innerHTML = books
+        .map((book) => {
+          const statusBadge = book.canFinish
+            ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">%100 Bitirilebilir</span>`
+            : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">%${book.okumaYuzdesi.toFixed(1)} Okunabilir</span>`;
+
+          const progressText = book.canFinish
+            ? `${book.sayfa} / ${book.sayfa} sayfa`
+            : `%${book.okumaYuzdesi.toFixed(1)} Okunabilir · ${book.readableBookPages} / ${book.sayfa} sayfa`;
+
+          const barColor = book.canFinish ? "bg-emerald-500" : "bg-blue-600";
+
+          const distLabel =
+            book.distStops === 0
+              ? "Bulunduğunuz durakta (0 durak)"
+              : `Bulunduğunuz durağa ${book.distStops} durak / ${book.distMin} dk`;
+
+          const onRouteBadge = book.onRoute
+            ? `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-100/80 text-emerald-800">Güzergah üzerinde</span>`
+            : "";
+
+          return `
+            <article class="bg-white rounded-2xl border border-[#E2E8F0] shadow-xs hover:border-slate-300 transition p-5 flex flex-col justify-between gap-4">
+              <div class="space-y-3">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-slate-500">
+                    ${book.sayfa} sayfa · ${book.bookReadingMin} dk
+                  </span>
+                  ${statusBadge}
+                </div>
+
+                <div>
+                  <h2 class="text-base font-bold text-slate-900 leading-snug line-clamp-2" title="${book.kitap_adi}">
+                    ${book.kitap_adi}
+                  </h2>
+                  <p class="text-xs font-medium text-slate-500 mt-1">
+                    ${book.yazar}
+                  </p>
+                </div>
+
+                <!-- İlerleme Çubuğu -->
+                <div class="space-y-1.5 pt-1">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="text-slate-500">Yolculukta Okuma</span>
+                    <span class="font-semibold text-slate-700">${progressText}</span>
+                  </div>
+                  <div class="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                    <div class="h-full rounded-full progress-bar-fill ${barColor}" style="width: ${book.okumaYuzdesi}%"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-3 pt-3 border-t border-slate-100">
+                <!-- Alınacak Durak Kutusu -->
+                <div class="rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] p-3 text-xs space-y-1">
+                  <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <span class="text-slate-700">
+                      <strong class="font-semibold text-slate-900">Alınacak Durak:</strong> ${book.pickupStation}
+                    </span>
+                    ${onRouteBadge}
+                  </div>
+                  <p class="text-slate-500 leading-relaxed">
+                    ${book.library} · ${distLabel}
+                  </p>
+                </div>
+
+                <a href="${book.link}" target="_blank" rel="noopener noreferrer"
+                  class="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#E2E8F0] bg-white hover:bg-slate-900 text-slate-800 hover:text-white text-xs font-semibold transition">
+                  Katalogda Gör ↗
+                </a>
+              </div>
+            </article>
+          `;
+        })
+        .join("");
+    }
+
+    /**
+     * 8. ARAYÜZ SENKRONİZASYONU VE OLAY DİNLEYİCİLERİ
+     */
+    function updateUI() {
+      el.originSelect.value = state.origin;
+      el.destSelect.value = state.destination;
+
+      if (state.roundTrip) {
+        el.roundTripBtn.className = "py-1.5 px-2.5 rounded-lg text-xs font-semibold transition bg-white text-slate-900 shadow-2xs";
+        el.oneWayBtn.className = "py-1.5 px-2.5 rounded-lg text-xs font-semibold transition text-slate-600 hover:text-slate-900";
+      } else {
+        el.oneWayBtn.className = "py-1.5 px-2.5 rounded-lg text-xs font-semibold transition bg-white text-slate-900 shadow-2xs";
+        el.roundTripBtn.className = "py-1.5 px-2.5 rounded-lg text-xs font-semibold transition text-slate-600 hover:text-slate-900";
+      }
+
+      if (!state.origin) {
+        el.mapStatusHint.textContent = "Haritadan önce biniş, ardından iniş durağına tıklayın.";
+      } else if (!state.destination || state.clickPhase === 1) {
+        el.mapStatusHint.textContent = `Biniş: ${state.origin} — Şimdi haritadan iniş durağına tıklayın.`;
+      } else {
+        el.mapStatusHint.textContent = `${state.origin} → ${state.destination} rotası seçildi. Yeni rota için haritada başka bir durağa tıklayın.`;
+      }
+
+      const result = computeRecommendations();
+      updateMapVisuals(result ? result.route : null);
+      renderResults(result);
+    }
+
+    function bindEvents() {
+      el.originSelect.addEventListener("change", (e) => {
+        state.origin = e.target.value;
+        if (state.origin && state.origin === state.destination) {
+          state.destination = "";
+        }
+        state.clickPhase = state.origin && !state.destination ? 1 : 0;
+        updateUI();
+      });
+
+      el.destSelect.addEventListener("change", (e) => {
+        state.destination = e.target.value;
+        if (state.destination && state.destination === state.origin) {
+          state.origin = "";
+        }
+        state.clickPhase = 0;
+        updateUI();
+      });
+
+      el.oneWayBtn.addEventListener("click", () => {
+        state.roundTrip = false;
+        updateUI();
+      });
+
+      el.roundTripBtn.addEventListener("click", () => {
+        state.roundTrip = true;
+        updateUI();
+      });
+
+      el.resetBtn.addEventListener("click", () => {
+        state.origin = "";
+        state.destination = "";
+        state.roundTrip = false;
+        state.clickPhase = 0;
+        updateUI();
+      });
+
+      el.sampleRouteBtn.addEventListener("click", () => {
+        state.origin = "Şehitler";
+        state.destination = "ODTÜ";
+        state.roundTrip = false;
+        state.clickPhase = 0;
+        updateUI();
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      populateSelects();
+      renderMetroMap();
+      bindEvents();
+      updateUI();
+    });
+  </script>
+</body>
+</html>
